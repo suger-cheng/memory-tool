@@ -42,3 +42,8 @@ Desktop.ini
 # Temporary files
 _check.py
 *.tmp
+
+# Internal docs (local only, not published)
+build.md
+design_overview.md
+feature_brainstorm.md
