@@ -8,6 +8,24 @@
 
 ---
 
+## 📥 下载安装
+
+### 普通用户（无需安装 Python）
+
+直接从 [GitHub Releases](https://github.com/suger-cheng/memory-tool/releases/latest) 下载 exe，双击即可运行。
+
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| Windows 10/11 (64-bit) | `Recall-v1.0.0.exe` | 单文件免安装，约 77MB |
+
+**首次运行提示**：杀毒软件可能误报，加白名单即可。数据自动存到 `%APPDATA%\Recall\`，可在设置中改位置。
+
+### 开发者（源码运行）
+
+见下方「快速开始」章节。
+
+---
+
 ## 🖼 截图预览
 
 | 今日概览 | 卡片管理 |
