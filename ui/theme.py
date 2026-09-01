@@ -198,6 +198,22 @@ def build_qss(name: str) -> str:
     QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid {t['border']}; background: {t['card']}; }}
     QCheckBox::indicator:checked {{ background: {t['primary']}; border-color: {t['primary']}; }}
     QToolTip {{ background: {t['card']}; color: {t['text']}; border: 1px solid {t['border']}; border-radius: 6px; padding: 4px; }}
+    QLabel#Hint {{
+        color: {t['subtext']};
+        font-size: 12px;
+        background: transparent;
+    }}
+    QLineEdit#PathEdit {{
+        font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+        font-size: 12px;
+        background: {t['card']};
+        border: 1px solid {t['border']};
+        border-radius: 8px;
+        padding: 9px 12px;
+        color: {t['text']};
+        selection-background-color: {t['primary']};
+    }}
+    QLineEdit#PathEdit:hover {{ border-color: {t['primary']}; }}
     """
 
 

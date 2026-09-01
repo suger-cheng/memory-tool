@@ -1,6 +1,20 @@
 # 📖 Recall — 艾宾浩斯智能复习工具
 
-一款基于 **PySide6** 的桌面应用，通过科学的**间隔重复算法**（艾宾浩斯遗忘曲线）帮助用户高效巩固记忆。支持记忆卡片、知识点笔记、语录收藏三种内容类型，所有内容由算法自动调度复习时间。
+![Python](https://img.shields.io/badge/python-3.10+-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![PySide6](https://img.shields.io/badge/PySide6-6.5+-0x7BAFD4)
+
+一款基于 **PySide6** 的桌面应用，通过科学的**间隔重复算法**（艾宾浩斯遗忘曲线）帮助用户高效巩固记忆。支持记忆卡片、知识点笔记、语录收藏三种内容类型，所有内容由算法自动调度复习时间。纯本地运行，数据完全自主可控。
+
+---
+
+## 🖼 截图预览
+
+| 今日概览 | 卡片管理 |
+|:---:|:---:|
+| ![](screenshots/dashboard.png) | ![](screenshots/cards.png) |
+| 卡组管理 | 设置（自定义数据目录） |
+| ![](screenshots/decks.png) | ![](screenshots/settings.png) |
 
 ---
 
@@ -15,6 +29,7 @@
 - **三套主题** — 浅色 / 深色 / 护眼模式，一键切换
 - **定时提醒** — 系统托盘通知，可配置提醒间隔
 - **数据导入导出** — JSON 格式完整备份与恢复
+- **自定义数据目录** — 跨平台默认路径（APPDATA / Application Support / XDG_DATA_HOME），可在设置中一键迁移到任意位置，自动迁移 SQLite 附属文件
 
 ---
 
@@ -26,6 +41,7 @@
 | 数据存储 | SQLite（WAL 模式，连接复用） |
 | 图表渲染 | pyqtgraph / matplotlib |
 | 运行环境 | Python 3.10+ |
+| 打包工具 | PyInstaller |
 
 ---
 
@@ -35,9 +51,10 @@
 memory-tool/
 ├── main.py                    # 应用入口
 ├── review_engine.py           # 复习算法核心（ReviewEngine）
-├── database.py                # 数据库连接管理与 Schema 初始化
+├── database.py                # 数据库连接管理与 Schema 初始化 + 数据目录解析
 ├── gamification.py            # 游戏化系统（XP / 等级 / 成就）
-├── recall.db                  # SQLite 数据库文件
+├── LICENSE                    # MIT 开源协议
+├── requirements.txt           # 依赖清单
 ├── ui/
 │   ├── main_window.py         # 主窗口（侧边栏 + 内容区 + 快捷键）
 │   ├── dashboard_view.py      # 今日概览面板
@@ -46,7 +63,7 @@ memory-tool/
 │   ├── deck_manager.py        # 卡组管理（支持嵌套）
 │   ├── stats_view.py          # 统计图表面板
 │   ├── achievements_view.py   # 成就墙
-│   ├── settings_view.py       # 设置页
+│   ├── settings_view.py       # 设置页（主题/限额/提醒/数据目录/导入导出）
 │   └── theme.py               # QSS 主题系统（浅色/深色/护眼）
 ├── models/
 │   ├── card_model.py          # QAbstractListModel 卡片列表模型
@@ -55,30 +72,93 @@ memory-tool/
 │   ├── flip_card.py           # 可翻转卡片 Widget
 │   ├── mastery_ring.py        # 熟练度环形进度条
 │   └── stat_card.py           # 统计数字卡片组件
-└── utils/
-    ├── scheduler.py           # QTimer 定时提醒 + 系统托盘
-    ├── stats.py               # 每日统计与连续打卡天数
-    └── import_export.py       # 数据导入导出（JSON）
+├── utils/
+│   ├── scheduler.py           # QTimer 定时提醒 + 系统托盘
+│   ├── stats.py               # 每日统计与连续打卡天数
+│   └── import_export.py       # 数据导入导出（JSON）
+└── screenshots/               # 应用截图（README 引用）
 ```
+
+> **数据文件说明**：`recall.db`（SQLite 数据库）和 `~/.recall_config.json`（数据目录引导配置）**不在项目目录内**，详见下方「数据存储位置」。
 
 ---
 
 ## 🚀 快速开始
 
-### 环境要求
+### 方式一：源码运行（开发者）
+
+#### 环境要求
 
 - Python 3.10+
-- PySide6
+- PySide6 >= 6.5.0
+- pyqtgraph >= 0.13.0
 
-### 安装与运行
+#### 安装与运行
 
 ```bash
+# 克隆仓库
+git clone https://github.com/suger-cheng/memory-tool.git
+cd memory-tool
+
 # 安装依赖
-pip install PySide6
+pip install -r requirements.txt
 
 # 运行应用
 python main.py
 ```
+
+### 方式二：打包为可执行文件（普通用户）
+
+```bash
+# 安装打包工具
+pip install pyinstaller
+
+# 单目录模式（推荐，启动快）
+pyinstaller --onedir --windowed --name Recall main.py
+
+# 或单文件模式（分发方便，首次启动略慢）
+pyinstaller --onefile --windowed --name Recall main.py
+```
+
+打包产物：
+- 单目录：`dist/Recall/Recall.exe` —— 把整个 `dist/Recall/` 文件夹压缩分发
+- 单文件：`dist/Recall.exe` —— 直接分发
+
+> 打包后**数据目录自动按系统选择**，无需额外配置；也可在应用设置中自定义路径。
+
+---
+
+## 📂 数据存储位置
+
+Recall 不把数据库放在安装目录，避免升级/卸载时丢失数据。
+
+### 默认路径（跨平台）
+
+| 系统 | 默认路径 |
+|------|---------|
+| Windows | `%APPDATA%\Recall\recall.db`（即 `C:\Users\<你>\AppData\Roaming\Recall\`） |
+| macOS | `~/Library/Application Support/Recall/recall.db` |
+| Linux | `~/.local/share/Recall/recall.db`（或 `$XDG_DATA_HOME/Recall/`） |
+
+### 自定义路径 + 自动迁移
+
+在 **设置 → 数据存储位置** 中可以选择任意目录，Recall 会自动：
+1. 校验目标目录可写
+2. 关闭当前数据库连接
+3. 迁移 `recall.db` + `recall.db-wal` + `recall.db-shm`（SQLite WAL 模式的附属文件）
+4. 写入引导配置
+
+引导配置文件 `~/.recall_config.json`（放在用户 home 目录，**不在 data_dir 内**——否则改了 data_dir 后下次启动找不到自己在哪）记录当前使用的 `data_dir`。
+
+### 便携版
+
+想把 Recall 放到 U 盘里带着走？在启动前设置环境变量：
+
+```bash
+RECALL_BOOT_CONFIG=./boot.json
+```
+
+再在设置中把数据目录选成 `./data`，整个 Recall 就可以跟着 U 盘走了。
 
 ---
 
@@ -181,4 +261,10 @@ python main.py
 
 - **导出**：全量导出为 JSON 文件（包含卡组、卡片、复习记录、统计、设置、成就）
 - **导入**：支持追加导入或全量替换模式
-- **备份**：直接复制 SQLite 数据库文件
+- **备份**：直接在设置中选择备份数据库位置（或手动复制 recall.db）
+
+---
+
+## 📄 License
+
+本项目基于 [MIT 协议](LICENSE) 开源。

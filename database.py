@@ -1,18 +1,192 @@
-"""数据库连接管理与 Schema 初始化。SQLite 单文件，连接复用。"""
+"""数据库连接管理与 Schema 初始化。SQLite 单文件，连接复用。
+
+启动时路径解析顺序：
+1. 读取用户引导配置 ~/.recall_config.json 中的 data_dir（设置页自定义保存的路径）
+2. 否则回退到跨平台默认目录（APPDATA / Application Support / XDG_DATA_HOME）
+
+data_dir 变更：
+- 通过 set_data_dir()，会自动把 recall.db + -wal + -shm 一起迁移过去，并写入引导配置。
+- 迁移后调用方应提示用户重启应用（连接复用对象 _conn 仍指向旧文件，不重启可能写回旧位置）。
+"""
 
 from __future__ import annotations
 
+import glob
+import json
 import os
+import shutil
 import sqlite3
+import sys
 from datetime import datetime
 from typing import Any, Sequence
 
+
+# ---------------------------------------------------------------------------
+# 路径解析（模块加载期就确定好 _DATA_DIR / DB_PATH）
+# ---------------------------------------------------------------------------
+
+# 引导配置放在用户 home，**不依赖 data_dir**——否则改了 data_dir 后下次启动找不到自己在哪
+# 可用环境变量 RECALL_BOOT_CONFIG 覆盖（主要用于测试、便携版分发）
+_BOOT_CONFIG_PATH = os.environ.get("RECALL_BOOT_CONFIG") or os.path.join(
+    os.path.expanduser("~"), ".recall_config.json"
+)
+_DB_FILENAME = "recall.db"
+
+
+def _default_data_dir() -> str:
+    """跨平台默认数据目录（没配自定义路径时用）。"""
+    app_name = "Recall"
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, app_name)
+
+
+def _load_boot_config() -> dict:
+    """读 ~/.recall_config.json；不存在或损坏返回空 dict。"""
+    if not os.path.isfile(_BOOT_CONFIG_PATH):
+        return {}
+    try:
+        with open(_BOOT_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_boot_config(cfg: dict) -> None:
+    with open(_BOOT_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def _resolve_data_dir() -> str:
+    """按优先级解析最终数据目录，并确保它存在。"""
+    cfg = _load_boot_config()
+    custom = (cfg.get("data_dir") or "").strip()
+    if custom and os.path.isabs(custom):
+        path = custom
+    else:
+        path = _default_data_dir()
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _db_files(root_dir: str) -> list[str]:
+    """返回目录下所有 recall.db* 文件（含 wal / shm / journal）。"""
+    return glob.glob(os.path.join(root_dir, _DB_FILENAME + "*"))
+
+
 # 数据库存放目录（独立于代码目录，打包后数据不丢失）
-_DATA_DIR = r"E:\data\ai\memory-tool-data"
-os.makedirs(_DATA_DIR, exist_ok=True)
-DB_PATH = os.path.join(_DATA_DIR, "recall.db")
+_DATA_DIR = _resolve_data_dir()
+DB_PATH = os.path.join(_DATA_DIR, _DB_FILENAME)
 
 _conn = None
+
+
+# ---------------------------------------------------------------------------
+# 公共 API：数据目录查询 / 自定义迁移
+# ---------------------------------------------------------------------------
+
+def get_data_dir() -> str:
+    """当前生效的数据目录绝对路径。"""
+    return _DATA_DIR
+
+
+def get_db_path() -> str:
+    """当前生效的数据库文件绝对路径。"""
+    return DB_PATH
+
+
+def get_boot_config_path() -> str:
+    """引导配置文件路径（主要用于设置页展示）。"""
+    return _BOOT_CONFIG_PATH
+
+
+def set_data_dir(new_dir: str, move_data: bool = True) -> tuple[bool, str]:
+    """更改数据目录，可选迁移现有 recall.db*。
+
+    返回 (是否成功, 描述信息)。
+    注意：成功后应用应重启，否则当前会话里的 SQLite 连接仍指向旧文件。
+    """
+    global _DATA_DIR, DB_PATH
+
+    new_dir = os.path.abspath(os.path.expanduser(new_dir))
+    if not new_dir:
+        return False, "路径不能为空"
+    if new_dir == _DATA_DIR:
+        return True, "路径未变更"
+
+    # 1) 尝试预先创建目标目录，校验写权限
+    try:
+        os.makedirs(new_dir, exist_ok=True)
+        probe = os.path.join(new_dir, ".write_probe")
+        with open(probe, "w") as f:
+            f.write("ok")
+        os.remove(probe)
+    except OSError as e:
+        return False, f"目标目录不可写：{e}"
+
+    # 2) 目标若已存在 recall.db，拒绝覆盖（让用户先清空或选别的目录）
+    existing_in_target = _db_files(new_dir)
+    if existing_in_target:
+        return (
+            False,
+            f"目标目录已存在 Recall 数据库文件，无法覆盖：{existing_in_target[0]}",
+        )
+
+    old_dir = _DATA_DIR
+    old_files = _db_files(old_dir)
+
+    # 3) 先把连接关干净，避免源库被锁住导致迁移失败
+    close_conn()
+
+    # 4) 迁移文件（move 比 copy 快，但跨盘 move 其实也是 copy+删，都能行）
+    migrated: list[str] = []
+    if move_data and old_files:
+        try:
+            for src in old_files:
+                name = os.path.basename(src)
+                dst = os.path.join(new_dir, name)
+                shutil.move(src, dst)
+                migrated.append(dst)
+        except Exception as e:
+            # 回滚：把已经迁过去的挪回来
+            for m in migrated:
+                try:
+                    shutil.move(m, os.path.join(old_dir, os.path.basename(m)))
+                except OSError:
+                    pass
+            return False, f"迁移失败：{e}"
+
+    # 5) 更新模块级路径并写入引导配置
+    _DATA_DIR = new_dir
+    DB_PATH = os.path.join(new_dir, _DB_FILENAME)
+    try:
+        cfg = _load_boot_config()
+        cfg["data_dir"] = new_dir
+        _save_boot_config(cfg)
+    except Exception as e:
+        return False, f"配置写入失败：{e}"
+
+    if move_data and migrated:
+        return True, f"已迁移 {len(migrated)} 个文件到新目录，应用需重启以使用新数据库。"
+    return True, "新目录已写入配置（未检测到旧数据），应用需重启。"
+
+
+def reset_data_dir_to_default(move_data: bool = True) -> tuple[bool, str]:
+    """撤销自定义路径，回到跨平台默认目录（同样会迁移数据）。"""
+    new_dir = _default_data_dir()
+    # 先清掉引导配置里的 data_dir，这样走 set_data_dir 内部校验时 new_dir != _DATA_DIR 才正确
+    # 这里不直接清，set_data_dir 里写完会再写回 cfg；我们最后再把 cfg 的 data_dir 键移除即可。
+    ok, msg = set_data_dir(new_dir, move_data=move_data)
+    if not ok:
+        return ok, msg
+    cfg = _load_boot_config()
+    cfg.pop("data_dir", None)
+    _save_boot_config(cfg)
+    return True, msg + "（已恢复默认目录）"
 
 
 def get_conn() -> sqlite3.Connection:
