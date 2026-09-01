@@ -12,9 +12,9 @@
 
 | 今日概览 | 卡片管理 |
 |:---:|:---:|
-| ![](screenshots/dashboard.png) | ![](screenshots/cards.png) |
+| ![](screenshots/主页概览.png) | ![](screenshots/卡片管理.png) |
 | 卡组管理 | 设置（自定义数据目录） |
-| ![](screenshots/decks.png) | ![](screenshots/settings.png) |
+| ![](screenshots/卡组管理.png) | ![](screenshots/设置.png) |
 
 ---
 
